@@ -178,6 +178,17 @@ local function MakeDraggable(frame, handle)
 
     handle.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            -- Only start drag if clicking directly on the handle, not on a child button/interactable
+            local guiObjects = game:GetService("Players").LocalPlayer:GetMouse() and {} or {}
+            pcall(function()
+                guiObjects = game:GetService("GuiService"):GetGuiObjectsAtPosition(input.Position.X, input.Position.Y)
+            end)
+            -- Check if the top GUI object is an interactive element — if so, don't drag
+            for _, obj in ipairs(guiObjects) do
+                if obj:IsA("TextButton") or obj:IsA("TextBox") or obj:IsA("ImageButton") then
+                    return -- clicked an interactive element, cancel drag
+                end
+            end
             dragging = true
             dragStart = input.Position
             startPos = frame.Position
@@ -192,6 +203,12 @@ local function MakeDraggable(frame, handle)
     handle.InputChanged:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
             dragInput = input
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
         end
     end)
 
@@ -609,8 +626,7 @@ function NebulaUI:CreateWindow(config)
         Parent = window,
     })
 
-    MakeDraggable(window)
-
+    -- Dragging is set up after titleBar is created below
     -- ===== SIDEBAR =====
     local sidebar = Create("Frame", {
         Name = "Sidebar",
@@ -767,6 +783,9 @@ function NebulaUI:CreateWindow(config)
         ZIndex = 11,
         Parent = titleBar,
     })
+
+    -- Drag ONLY from titlebar so sliders/buttons don't move the window
+    MakeDraggable(window, titleBar)
 
     -- ===== CONTENT AREA =====
     local contentHolder = Create("Frame", {
@@ -1250,6 +1269,25 @@ function NebulaUI:CreateWindow(config)
                 Tween(thumb, {Position = UDim2.new(pct, 0, 0.5, 0)}, 0.04)
                 task.spawn(callback, value)
             end
+
+            -- TextButton hitbox consumes the click so it won't bubble up to window drag
+            local sliderHit = Create("TextButton", {
+                Size = UDim2.new(1, 0, 0, 20),
+                Position = UDim2.new(0, 0, 1, -22),
+                BackgroundTransparency = 1,
+                Text = "",
+                ZIndex = 16,
+                Parent = frame,
+            })
+            sliderHit.MouseButton1Down:Connect(function()
+                dragging = true
+            end)
+            sliderHit.InputBegan:Connect(function(i)
+                if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+                    dragging = true
+                    UpdateSlider(i.Position.X)
+                end
+            end)
 
             trackBG.InputBegan:Connect(function(i)
                 if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
