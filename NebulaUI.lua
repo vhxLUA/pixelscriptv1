@@ -433,23 +433,51 @@ function NebulaUI.new(config)
     local self = setmetatable({}, NebulaUI)
 
     config = config or {}
+    local guiName = config.Title or "NebulaUI"
     local themeName = config.Theme or "Nebula"
     self.Theme = type(config.Theme) == "table" and config.Theme or (NebulaUI.Themes[themeName] or NebulaUI.Themes.Nebula)
-    self.Config = ConfigSystem.new(config.Title or "NebulaScript")
+    self.Config = ConfigSystem.new(guiName)
     self.Windows = {}
     self._notifQueue = {}
 
+    -- ============================================================
+    -- SINGLETON: destroy any previous instance so re-executing
+    -- the script doesn't stack duplicate GUIs
+    -- ============================================================
+    local CoreGui = game:GetService("CoreGui")
+    local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+    pcall(function()
+        local old = CoreGui:FindFirstChild(guiName)
+        if old then old:Destroy() end
+    end)
+    pcall(function()
+        local old = PlayerGui:FindFirstChild(guiName)
+        if old then old:Destroy() end
+    end)
+    if getgenv and getgenv()["__NebulaUI_" .. guiName] then
+        pcall(function()
+            getgenv()["__NebulaUI_" .. guiName]:Destroy()
+        end)
+        getgenv()["__NebulaUI_" .. guiName] = nil
+    end
+
     -- ScreenGui
     self.ScreenGui = Create("ScreenGui", {
-        Name = config.Title or "NebulaUI",
+        Name = guiName,
         ResetOnSpawn = false,
         ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
         IgnoreGuiInset = true,
     })
 
-    pcall(function() self.ScreenGui.Parent = game:GetService("CoreGui") end)
-    if not self.ScreenGui.Parent or self.ScreenGui.Parent ~= game:GetService("CoreGui") then
-        self.ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    pcall(function() self.ScreenGui.Parent = CoreGui end)
+    if not self.ScreenGui.Parent or self.ScreenGui.Parent ~= CoreGui then
+        self.ScreenGui.Parent = PlayerGui
+    end
+
+    -- Store reference so next execution can clean up this instance
+    if getgenv then
+        getgenv()["__NebulaUI_" .. guiName] = self.ScreenGui
     end
 
     -- Notification container
@@ -869,22 +897,46 @@ function NebulaUI:CreateWindow(config)
     function windowObj:CreateTab(tabConfig)
         tabConfig = tabConfig or {}
         local tabName = tabConfig.Name or "Tab"
-        local tabIcon = tabConfig.Icon or "◆"
+        -- Icon can be a rbxassetid number/string, or falls back to a dot
+        local tabIconId = tabConfig.Icon
 
         -- Sidebar icon button
         local iconBtn = Create("TextButton", {
             Name = tabName,
             Size = UDim2.new(0, 36, 0, 36),
             BackgroundColor3 = theme.SidebarInactive,
-            Text = tabIcon,
-            TextColor3 = theme.SubText,
-            TextSize = IsMobile() and 16 or 14,
-            Font = theme.Font,
+            Text = "",  -- text always empty; icon handled by ImageLabel below
             BorderSizePixel = 0,
             ZIndex = 13,
             Parent = tabIconContainer,
         })
         Corner(iconBtn, UDim.new(0, 8))
+
+        -- Icon image (or fallback dot if no asset)
+        if tabIconId then
+            Create("ImageLabel", {
+                Size = UDim2.new(0, 18, 0, 18),
+                Position = UDim2.new(0.5, -9, 0.5, -9),
+                BackgroundTransparency = 1,
+                Image = "rbxassetid://" .. tostring(tabIconId),
+                ImageColor3 = theme.SubText,
+                ZIndex = 14,
+                Name = "TabIcon",
+                Parent = iconBtn,
+            })
+        else
+            Create("TextLabel", {
+                Size = UDim2.new(1, 0, 1, 0),
+                BackgroundTransparency = 1,
+                Text = "◆",
+                TextColor3 = theme.SubText,
+                TextSize = 12,
+                Font = theme.Font,
+                ZIndex = 14,
+                Name = "TabIcon",
+                Parent = iconBtn,
+            })
+        end
 
         -- Tooltip
         local tooltip = Create("TextLabel", {
@@ -1895,12 +1947,30 @@ function NebulaUI:CreateWindow(config)
     function windowObj:_SelectTab(tabObj)
         for _, t in pairs(self.Tabs) do
             t.Content.Visible = false
-            Tween(t.Button, {BackgroundColor3 = theme.SidebarInactive, TextColor3 = theme.SubText}, 0.15)
+            Tween(t.Button, {BackgroundColor3 = theme.SidebarInactive}, 0.15)
             t.Indicator.Visible = false
+            -- Tint icon to inactive color
+            local icon = t.Button:FindFirstChild("TabIcon")
+            if icon then
+                if icon:IsA("ImageLabel") then
+                    Tween(icon, {ImageColor3 = theme.SubText}, 0.15)
+                elseif icon:IsA("TextLabel") then
+                    Tween(icon, {TextColor3 = theme.SubText}, 0.15)
+                end
+            end
         end
         tabObj.Content.Visible = true
-        Tween(tabObj.Button, {BackgroundColor3 = theme.SecondaryBg, TextColor3 = theme.Text}, 0.15)
+        Tween(tabObj.Button, {BackgroundColor3 = theme.SecondaryBg}, 0.15)
         tabObj.Indicator.Visible = true
+        -- Tint active icon to accent color
+        local activeIcon = tabObj.Button:FindFirstChild("TabIcon")
+        if activeIcon then
+            if activeIcon:IsA("ImageLabel") then
+                Tween(activeIcon, {ImageColor3 = theme.Accent}, 0.15)
+            elseif activeIcon:IsA("TextLabel") then
+                Tween(activeIcon, {TextColor3 = theme.Accent}, 0.15)
+            end
+        end
         self.ActiveTab = tabObj
     end
 
